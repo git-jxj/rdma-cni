@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
@@ -269,6 +271,25 @@ var _ = Describe("Main", func() {
 	})
 
 	Describe("Test CmdDel()", func() {
+		It("removes cached state when the container namespace is already gone", func() {
+			originalCacheDir := cache.CacheDir
+			cache.CacheDir = GinkgoT().TempDir()
+			DeferCleanup(func() { cache.CacheDir = originalCacheDir })
+			plugin.stateCache = cache.NewStateCache()
+			plugin.nsManager = nil
+			plugin.rdmaManager = nil
+			conf := generateNetConfCmdDel("rdma-net")
+			args := generateArgs("", "container-1", "net1", &conf)
+			ref := plugin.stateCache.GetStateRef(conf.Name, args.ContainerID, args.IfName)
+			state := generateRdmaNetState("0000:04:00.5", "mlx5_4", "mlx5_4")
+			Expect(plugin.stateCache.Save(ref, &state)).To(Succeed())
+
+			Expect(plugin.CmdDel(&args)).To(Succeed())
+			_, err := os.Stat(filepath.Join(cache.CacheDir, string(ref)))
+			Expect(os.IsNotExist(err)).To(BeTrue(), "DEL must remove the cached network state")
+			Expect(plugin.CmdDel(&args)).To(Succeed())
+		})
+
 		Context("Valid configuration provided", func() {
 			It("Should succeed and move Rdma device associated with PCI net device back to sandbox namespace", func() {
 				pciDev := "0000:04:00.5"
