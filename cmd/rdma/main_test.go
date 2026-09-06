@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -288,6 +289,40 @@ var _ = Describe("Main", func() {
 			_, err := os.Stat(filepath.Join(cache.CacheDir, string(ref)))
 			Expect(os.IsNotExist(err)).To(BeTrue(), "DEL must remove the cached network state")
 			Expect(plugin.CmdDel(&args)).To(Succeed())
+		})
+
+		It("returns cache deletion failures when the namespace is already gone", func() {
+			conf := generateNetConfCmdDel("rdma-cleanup-failure")
+			args := generateArgs("", "container-1", "net1", &conf)
+			ref := cache.StateRef("some-ref")
+			deleteErr := fmt.Errorf("cache is read-only")
+			stateCacheMock.On("GetStateRef", conf.Name, args.ContainerID, args.IfName).Return(ref)
+			stateCacheMock.On("Load", ref, mock.Anything).Return(nil)
+			stateCacheMock.On("Delete", ref).Return(deleteErr)
+
+			err := plugin.CmdDel(&args)
+			Expect(err).To(MatchError(ContainSubstring("failed to delete cache entry")))
+			Expect(errors.Is(err, deleteErr)).To(BeTrue())
+			stateCacheMock.AssertExpectations(GinkgoT())
+		})
+
+		It("preserves cached state when restoring the RDMA device fails", func() {
+			conf := generateNetConfCmdDel("rdma-net")
+			args := generateArgs("/proc/12444/ns/net", "container-1", "net1", &conf)
+			ref := cache.StateRef("some-ref")
+			state := generateRdmaNetState("0000:04:00.5", "mlx5_4", "mlx5_4")
+			stateCacheMock.On("GetStateRef", conf.Name, args.ContainerID, args.IfName).Return(ref)
+			stateCacheMock.On("Load", ref, mock.Anything).Return(nil).Run(func(args mock.Arguments) {
+				*args.Get(1).(*rdmaTypes.RdmaNetState) = state
+			})
+			targetNs, err := dummyNsMgr.GetCurrentNS()
+			Expect(err).NotTo(HaveOccurred())
+			rdmaMgrMock.On("MoveRdmaDevToNs", state.ContainerRdmaDevName, targetNs).Return(fmt.Errorf("restore failed"))
+
+			Expect(plugin.CmdDel(&args)).To(MatchError(ContainSubstring("restore failed")))
+			stateCacheMock.AssertNotCalled(GinkgoT(), "Delete", mock.Anything)
+			stateCacheMock.AssertExpectations(GinkgoT())
+			rdmaMgrMock.AssertExpectations(GinkgoT())
 		})
 
 		Context("Valid configuration provided", func() {

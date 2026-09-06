@@ -273,7 +273,7 @@ func (plugin *rdmaCniPlugin) CmdDel(args *skel.CmdArgs) error {
 
 	err = plugin.stateCache.Delete(pRef)
 	if err != nil {
-		log.Warn().Msgf("failed to delete cache entry(%q). %v", pRef, err)
+		return fmt.Errorf("failed to delete cache entry(%q): %w", pRef, err)
 	}
 	return nil
 }
