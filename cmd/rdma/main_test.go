@@ -301,9 +301,10 @@ var _ = Describe("Main", func() {
 			stateCacheMock.On("Delete", ref).Return(deleteErr)
 
 			err := plugin.CmdDel(&args)
-			Expect(err).To(MatchError(ContainSubstring("failed to delete cache entry")))
-			Expect(errors.Is(err, deleteErr)).To(BeTrue())
-			stateCacheMock.AssertExpectations(GinkgoT())
+			Expect(err).To(MatchError(ContainSubstring("failed to delete cache entry")),
+				"DEL must report cache deletion failures")
+			Expect(errors.Is(err, deleteErr)).To(BeTrue(), "DEL must preserve the cache deletion error chain")
+			Expect(stateCacheMock.AssertExpectations(GinkgoT())).To(BeTrue(), "DEL must perform the expected cache operations")
 		})
 
 		It("preserves cached state when restoring the RDMA device fails", func() {
@@ -316,13 +317,17 @@ var _ = Describe("Main", func() {
 				*args.Get(1).(*rdmaTypes.RdmaNetState) = state
 			})
 			targetNs, err := dummyNsMgr.GetCurrentNS()
-			Expect(err).NotTo(HaveOccurred())
-			rdmaMgrMock.On("MoveRdmaDevToNs", state.ContainerRdmaDevName, targetNs).Return(fmt.Errorf("restore failed"))
+			Expect(err).NotTo(HaveOccurred(), "the restore failure fixture must provide the default namespace")
+			restoreErr := errors.New("restore failed")
+			rdmaMgrMock.On("MoveRdmaDevToNs", state.ContainerRdmaDevName, targetNs).Return(restoreErr)
 
-			Expect(plugin.CmdDel(&args)).To(MatchError(ContainSubstring("restore failed")))
-			stateCacheMock.AssertNotCalled(GinkgoT(), "Delete", mock.Anything)
-			stateCacheMock.AssertExpectations(GinkgoT())
-			rdmaMgrMock.AssertExpectations(GinkgoT())
+			err = plugin.CmdDel(&args)
+			Expect(err).To(MatchError(ContainSubstring("restore failed")), "DEL must report device restoration failures")
+			Expect(errors.Is(err, restoreErr)).To(BeTrue(), "DEL must preserve the device restoration error chain")
+			Expect(stateCacheMock.AssertNotCalled(GinkgoT(), "Delete", mock.Anything)).To(BeTrue(),
+				"DEL must retain cached state when device restoration fails")
+			Expect(stateCacheMock.AssertExpectations(GinkgoT())).To(BeTrue(), "DEL must perform the expected cache operations")
+			Expect(rdmaMgrMock.AssertExpectations(GinkgoT())).To(BeTrue(), "DEL must attempt to restore the RDMA device")
 		})
 
 		Context("Valid configuration provided", func() {

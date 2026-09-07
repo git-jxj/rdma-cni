@@ -158,7 +158,7 @@ func (plugin *rdmaCniPlugin) moveRdmaDevFromNs(rdmaDev, nsPath string) error {
 		return plugin.rdmaManager.MoveRdmaDevToNs(rdmaDev, targetNs)
 	})
 	if err != nil {
-		return fmt.Errorf("failed to move RDMA device %s to default namespace. %v", rdmaDev, err)
+		return fmt.Errorf("failed to move RDMA device %s to default namespace. %w", rdmaDev, err)
 	}
 	return err
 }
@@ -267,7 +267,7 @@ func (plugin *rdmaCniPlugin) CmdDel(args *skel.CmdArgs) error {
 		err = plugin.moveRdmaDevFromNs(rdmaState.ContainerRdmaDevName, args.Netns)
 		if err != nil {
 			return fmt.Errorf(
-				"failed to restore RDMA device %s to default namespace. %v", rdmaState.ContainerRdmaDevName, err)
+				"failed to restore RDMA device %s to default namespace. %w", rdmaState.ContainerRdmaDevName, err)
 		}
 	}
 
